@@ -113,9 +113,6 @@ This ensures the model first develops useful representations before being forced
 
 ```
 self-pruning-network/
-├── self_pruning_network.py   # PrunableLinear layer + model definition
-├── train.py                  # Training loop with λ scheduler
-├── experiment.py             # run_experiment() wrapper
 ├── notebook.ipynb            # Full walkthrough with plots
 └── README.md
 ```
