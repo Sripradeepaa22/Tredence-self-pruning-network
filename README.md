@@ -1,113 +1,130 @@
-Self-Pruning Neural Network
-Tredence AI Engineering Internship — Case Study Submission
+# 🧠 Self-Pruning Neural Network (PyTorch)
 
-📌 Problem Overview
-Design and implement a neural network that learns to prune itself during training — not as a post-training step, but dynamically, using learnable gate parameters attached to every weight.
-The core idea:
+A PyTorch implementation of a neural network that **learns to prune itself** during training using learnable gate scores to automatically induce sparsity — no post-training pruning required.
 
-Every weight w_ij gets a learnable scalar gate g_ij ∈ (0, 1)
-If a gate → 0, that weight is effectively removed from the network
-Training jointly optimises classification accuracy + sparsity via a custom loss
+Trained and evaluated on **CIFAR-10**, this project demonstrates how to balance classification accuracy with model efficiency by tuning a sparsity penalty (λ).
 
-Dataset: CIFAR-10 (60,000 images, 10 classes, 32×32×3)
+---
 
-🏗️ Architecture
-Input (32 × 32 × 3 = 3072)
-        │
-        ▼
- PrunableLinear(3072 → 512)   ← gate_scores learned here
-        │  ReLU
-        ▼
- PrunableLinear(512 → 256)    ← gate_scores learned here
-        │  ReLU
-        ▼
- PrunableLinear(256 → 10)     ← gate_scores learned here
-        │
-        ▼
-   Class Logits → CrossEntropyLoss
-The PrunableLinear Layer
-Each layer holds three learnable parameter tensors:
-ParameterShapeRoleweight(out_features, in_features)Standard linear weightsbias(out_features,)Standard biasgate_scores(out_features, in_features)Learnable pruning gates
-Forward pass:
-pythongates          = torch.sigmoid(gate_scores * 1.5)   # ∈ (0, 1), sharpened
-pruned_weights = weight * gates                      # element-wise mask
-output         = F.linear(x, pruned_weights, bias)
-Gradients flow automatically through both weight and gate_scores via PyTorch autograd — no custom backward needed.
+## 📌 Overview
 
-⚙️ Training Objective
-Total Loss = CrossEntropyLoss(logits, labels) + λ × SparsityLoss
+Unlike traditional pruning (which typically happens *after* training), this implementation features a `PrunableLinear` layer that learns which weights are important **during** the training phase itself. A sigmoid-based gating mechanism combined with a gradual sparsity scheduler causes redundant connections to "shut off" progressively — letting the model first learn useful features before losing parameters.
 
-SparsityLoss = mean(sigmoid(gate_scores))   # L1-style penalty on all gates
-Why L1 Encourages Sparsity
-PenaltyGradient near zeroEffectL2 (sum of squares)Decays → 0Shrinks weights but rarely zeros themL1 (sum of values)ConstantPushes values to exactly 0
-Because sigmoid(x) ∈ (0,1) is always positive, the L1 norm is just the sum of gate values. The optimiser receives a constant gradient push toward zero regardless of how small a gate already is — this is why gates collapse to exactly 0 rather than staying "small but non-zero."
-Gradual Lambda Warmup
-pythoncurrent_lambda = lambda_val × (epoch / total_epochs)
-Lambda is annealed from 0 → λ over training. This lets the model first learn to classify, then progressively learn to prune — preventing the sparsity loss from overwhelming classification before useful features are learned.
+---
 
-📊 Results
-Lambda (λ)Test AccuracySparsity Level0.00552.37%95.56%0.0151.82%96.18%
-Key Observations
+## ✨ Key Features
 
-Higher λ → higher sparsity, slightly lower accuracy — the expected trade-off
-Both models achieve >95% sparsity, meaning over 95% of all weight connections are pruned to near-zero
-The accuracy difference between λ=0.005 and λ=0.01 is only ~0.55%, while sparsity increases by ~0.62% — showing the model is very robust to aggressive pruning
-Gradual warmup prevents accuracy collapse that occurs with fixed high-λ training
+- **Dynamic Gating** — Every connection in the linear layers has an associated learnable gate score.
+- **Gradual Pruning** — A λ scheduler ramps up sparsity pressure over training epochs, preventing premature pruning.
+- **High Sparsity** — Achieves **>95% sparsity** on CIFAR-10 while maintaining competitive MLP-level accuracy.
 
-Training Progression (λ = 0.005)
-EpochLossSparsity1801.9293.20%5635.6493.36%10566.2293.92%15524.4894.72%20492.6095.56%
-Sparsity grows steadily and consistently as training progresses — exactly the expected self-pruning behaviour.
+---
 
-📈 Plots
-The notebook generates two plots:
-1. Gate Value Distribution (Best Model)
+## 🏗️ Architecture
 
-Shows a large spike near 0 — the majority of gates are pruned
-A smaller cluster near 0.5–1.0 — the surviving important connections
-This bimodal distribution is the signature of successful self-pruning
+The model is a Multi-Layer Perceptron (MLP) with three custom `PrunableLinear` layers:
 
-2. Lambda vs Accuracy & Sparsity
+| Layer | Input → Output | Description |
+|-------|---------------|-------------|
+| Input | 3072 → 512 | Flattened 32×32×3 CIFAR-10 images |
+| Hidden | 512 → 256 | Intermediate representation |
+| Output | 256 → 10 | One logit per CIFAR-10 class |
 
-Shows the trade-off curve as λ increases
-Demonstrates that the sparsity mechanism works controllably
+## The Pruning Mechanism
+The core of this project is the PrunableLinear class. Its forward pass is defined as:
+Output=x⋅(W⊙σ(gate_scores×1.5))+b
+
+Where:
+- ⊙ is element-wise (Hadamard) product σ\sigma
+- σ is the sigmoid activation function
+- gate_scores are learnable parameters that control which weights stay active
+
+As training progresses, gate scores polarize toward 0 (pruned) or 1 (active), creating a sparse but effective network.
+
+## 📊 Results
+
+Experiments with varying λ values reveal the accuracy–sparsity trade-off:
+
+<img width="393" height="83" alt="image" src="https://github.com/user-attachments/assets/17a8e2fc-88eb-4acd-8ca3-2abbbd38cbe0" />
 
 
-🚀 How to Run
-Google Colab (Recommended)
+*
 
-Go to colab.research.google.com
-Upload self_pruning_network.ipynb
-Runtime → Change runtime type → T4 GPU ✅
-Runtime → Run all
+> Higher λ = more aggressive pruning, lower accuracy. Tune to your use case.
 
+---
 
-GPU gives ~5× speedup. Full run takes ~10–15 minutes on T4.
+## 📦 Prerequisites & Installation
 
-Local
-bashgit clone https://github.com/YOUR_USERNAME/tredence-self-pruning-network
-cd tredence-self-pruning-network
+**Requires Python 3.12+**
+
+Install dependencies:
+
+```bash
 pip install torch torchvision matplotlib numpy
-jupyter notebook self_pruning_network.ipynb
-Requirements
-Python      3.8+
-PyTorch     2.0+
-torchvision ≥ 0.15
-matplotlib  ≥ 3.5
-numpy       ≥ 1.21
+```
 
-Results
+---
+
+## 🚀 Usage
+
+The training script includes a `run_experiment` function that handles the full training loop, gradual λ scaling, and evaluation.
+
+```python
+from self_pruning_network import run_experiment
+
+# lambda_val controls the strength of the sparsity penalty
+result = run_experiment(lambda_val=0.005, epochs=20)
+
+print(f"Final Accuracy: {result['accuracy']}%")
+print(f"Sparsity:       {result['sparsity']}%")
+```
+
+---
+
+## 📈 Visualizations
+
+The notebook generates two diagnostic plots:
+
+### Gate Value Distribution
+Shows how gate scores polarize toward 0 (pruned) or 1 (active) over training — a healthy sign of effective pruning.
+
 <img width="597" height="455" alt="image" src="https://github.com/user-attachments/assets/81cc8160-e0bf-4764-bc7b-cdf63c915d50" />
+
+### λ vs. Performance
+Illustrates the trade-off between sparsity pressure and final classification accuracy across multiple experiments.
 <img width="562" height="459" alt="image" src="https://github.com/user-attachments/assets/522b3aba-52b9-4791-815c-1c408911f228" />
 
+---
+
+## 🛠️ How the λ Scheduler Works
+
+Rather than applying full sparsity pressure from epoch 1, the scheduler gradually increases λ from `0` to its target value over training:
+
+```
+Effective λ at epoch t = λ_target × (t / total_epochs)
+```
+
+This ensures the model first develops useful representations before being forced to compress them — critical for avoiding premature convergence to a useless sparse solution.
+
+---
+
+## 📁 Project Structure
+
+```
+self-pruning-network/
+├── self_pruning_network.py   # PrunableLinear layer + model definition
+├── train.py                  # Training loop with λ scheduler
+├── experiment.py             # run_experiment() wrapper
+├── notebook.ipynb            # Full walkthrough with plots
+└── README.md
+```
+
+---
+
+## 📄 License
+
+MIT License. See `LICENSE` for details.
 
 
-📁 Repository Structure
-tredence-self-pruning-network/
-├── self_pruning_network.ipynb   ← Main notebook with full experiment
-└── README.md                    ← This file
 
-🛠️ Tech Stack
-ToolPurposePython 3.xCore languagePyTorch 2.xModel, autograd, training looptorchvisionCIFAR-10 dataset loadingmatplotlibPlots and visualisationsnumpyNumerical utilities
-
-💡 Design Decisions & Reasoning
-DecisionWhysigmoid for gatesSmooth, differentiable, bounded ∈ (0,1) — perfect soft gateNegative init for gate_scores (-1.5)Starts gates near ~0.18 — model opens gates it needs rather than closing ones it doesn'tTemperature scaling (× 1.5)Sharpens sigmoid curve, pushes gates toward more decisive 0 or 1 valuesmean not sum for SparsityLossScale-invariant across layers of different sizesGradual lambda warmupPrevents pruning from collapsing classification before features are learned
